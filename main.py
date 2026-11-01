@@ -57,6 +57,10 @@ def test_open_relay(server, port, sender, recipient, domain, send_test_message=F
     after RCPT TO and reports the relay result from that reply. A real
     test message is delivered only when send_test_message is set.
     """
+    # When no recipient is named the probe sends RCPT TO for the sender
+    # address itself. Acceptance then only proves the server takes mail
+    # addressed that way, which is weaker evidence than acceptance for a
+    # separate outside recipient the caller names on purpose.
     probe_recipient = recipient if recipient else sender
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -145,6 +149,9 @@ def test_starttls(server, port, domain):
         response = reader.read_reply()
         logging.debug(f"EHLO response: {response.strip()}")
 
+        # The check is a substring search over the whole EHLO reply, so
+        # the word appearing anywhere in the text counts as advertised.
+        # The real test is the 220 after the STARTTLS command below.
         if "STARTTLS" not in response.upper():
             logging.warning("STARTTLS is not supported.")
             sock.close()
@@ -158,6 +165,10 @@ def test_starttls(server, port, domain):
             sock.close()
             return False
 
+        # The default context verifies the certificate chain and the
+        # host name, so a server with a self signed or mismatched cert
+        # fails here and is reported as not supporting STARTTLS even
+        # though it offered it. That conflation is in the except below.
         context = ssl.create_default_context()
         secure_sock = context.wrap_socket(sock, server_hostname=server)
         secure_reader = ReplyReader(secure_sock)
@@ -233,6 +244,10 @@ def main():
 
     logging.info(f"Starting SMTP analysis for {server}:{port}")
 
+    # Each probe opens its own connection, banner first. The banner
+    # connection is the reachability gate for the whole run: if that
+    # one fails I stop, even though a later test might have connected
+    # on a retry moments later.
     banner = banner_grab(server, port)
     if banner is None:
         logging.error("No connection to the target could be made; no analysis was performed.")
